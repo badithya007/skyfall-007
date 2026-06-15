@@ -1,179 +1,255 @@
-import importlib
-import importlib.util
+import streamlit as st
 
-if importlib.util.find_spec("streamlit") is not None:
-    st = importlib.import_module("streamlit")
-else:
-    # Provide a lightweight stub to fail fast with a clear message when Streamlit
-    # is not available (e.g., in linting or non-Streamlit environments).
-    class _MissingStreamlit:
-        def __getattr__(self, name):
-            def _missing(*args, **kwargs):
-                raise RuntimeError("Streamlit is required to run this app. Install it with: pip install streamlit")
-            return _missing
-
-    st = _MissingStreamlit()
-import requests
-from datetime import datetime
-
-# --- CONFIGURATION & CONSTANTS ---
-API_KEY = "a3f417b116fa4104b3c547e8ee9d32e1"
-BASE_URL = "https://newsapi.org/v2/top-headlines"
-
-# Streamlit Page Config
+# --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Global Pulse | Advanced News Dashboard",
-    page_icon="📰",
+    page_title="MiniStore | Modern E-Commerce Demo",
+    page_icon="🛍️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- MAPPINGS FOR FILTERS ---
-COUNTRIES = {
-    "United States": "us",
-    "United Kingdom": "gb",
-    "India": "in",
-    "Canada": "ca",
-    "Australia": "au",
-    "Germany": "de",
-    "Japan": "jp",
-    "France": "fr"
-}
-
-CATEGORIES = [
-    "general", 
-    "business", 
-    "entertainment", 
-    "health", 
-    "science", 
-    "sports", 
-    "technology"
-]
-
-# --- FETCH DATA FUNCTION ---
-def fetch_news(country_code, category, keyword, max_results):
-    """Fetches news from NewsAPI based on user filters."""
-    params = {
-        "apiKey": API_KEY,
-        "pageSize": max_results
+# --- CUSTOM CSS INJECTION ---
+# Enhances the default Streamlit look with modern cards, clean typography, and vibrant buttons
+st.markdown("""
+<style>
+    /* Global styles */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    h1, h2, h3 {
+        font-family: 'Inter', sans-serif;
+        color: #1E293B;
     }
     
-    # NewsAPI strict rule: You cannot mix 'country' or 'category' with the 'q' (keyword) 
-    # parameter if searching globally, but top-headlines allows combining them.
-    if country_code:
-        params["country"] = country_code
-    if category:
-        params["category"] = category
-    if keyword:
-        params["q"] = keyword
+    /* Hero Section */
+    .hero-container {
+        background: linear-gradient(135deg, #6366F1 0%, #4338CA 100%);
+        padding: 3rem 2rem;
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 2.5rem;
+        text-align: center;
+    }
+    .hero-container h1 {
+        color: white !important;
+        font-size: 2.8rem !important;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+    .hero-container p {
+        font-size: 1.2rem;
+        opacity: 0.9;
+    }
 
-    try:
-        response = requests.get(BASE_URL, params=params)
-        
-        if response.status_code == 200:
-            return response.json().get("articles", [])
-        elif response.status_code == 401:
-            st.error("🔒 Invalid API Key. Please check your credentials.")
-            return []
-        elif response.status_code == 429:
-            st.error("⏳ Rate limit exceeded. Please try again later.")
-            return []
-        else:
-            st.error(f"⚠️ Error {response.status_code}: {response.json().get('message', 'Unknown Error')}")
-            return []
-            
-    except requests.exceptions.RequestException as e:
-        st.error(f"📡 Connection Error: {e}")
-        return []
+    /* Product Card Styling */
+    .product-card {
+        background-color: #FFFFFF;
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        border: 1px solid #E2E8F0;
+        margin-bottom: 1.5rem;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .product-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    }
+    .product-category {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: #6366F1;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.25rem;
+    }
+    .product-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #0F172A;
+        margin-bottom: 0.5rem;
+        min-height: 2.5rem;
+    }
+    .product-desc {
+        color: #64748B;
+        font-size: 0.9rem;
+        line-height: 1.4;
+        margin-bottom: 1rem;
+        min-height: 4rem;
+    }
+    .product-price {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #0F172A;
+        margin-bottom: 1rem;
+    }
+    
+    /* Sidebar adjustments */
+    .sidebar .sidebar-content {
+        background-color: #F8FAFC;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# --- UI LAYOUT ---
+# --- INITIALIZE SESSION STATE ---
+# Used to persist shopping cart data across user interactions/reloads
+if 'cart' not in st.session_state:
+    st.session_state.cart = {}
 
-# Header
-st.title("📰 Global Pulse")
-st.subheader("Advanced Real-Time News Analytics Dashboard")
-st.markdown("---")
+# --- SAMPLE PRODUCT DATA ---
+# 6 Realistic products spanning 3 categories
+PRODUCTS = [
+    {
+        "id": 1,
+        "name": "AeroFit Wireless Earbuds",
+        "category": "Electronics",
+        "price": 79.99,
+        "description": "True wireless noise-canceling earbuds with 30-hour battery life and ergonomic sweatproof design.",
+        "image": "🎧"
+    },
+    {
+        "id": 2,
+        "name": "Quantum Mechanical Keyboard",
+        "category": "Electronics",
+        "price": 129.50,
+        "description": "Tactile RGB mechanical keyboard featuring hot-swappable switches and premium aluminum top plate.",
+        "image": "⌨️"
+    },
+    {
+        "id": 3,
+        "name": "Nomad Canvas Backpack",
+        "category": "Apparel & Accessories",
+        "price": 65.00,
+        "description": "Water-resistant, heavy-duty canvas pack with a dedicated 15-inch laptop sleeve and leather accents.",
+        "image": "🎒"
+    },
+    {
+        "id": 4,
+        "name": "Chronos Minimalist Watch",
+        "category": "Apparel & Accessories",
+        "price": 145.00,
+        "description": "Sleek, scratch-resistant sapphire glass analog watch paired with a genuine Italian leather band.",
+        "image": "⌚"
+    },
+    {
+        "id": 5,
+        "name": "HydroPeak Stainless Flask",
+        "category": "Home & Lifestyle",
+        "price": 32.00,
+        "description": "Double-wall vacuum insulated 32oz water bottle that keeps drinks ice-cold for up to 24 hours.",
+        "image": "🧉"
+    },
+    {
+        "id": 6,
+        "name": "Lumio Smart Ambient Lamp",
+        "category": "Home & Lifestyle",
+        "price": 49.99,
+        "description": "App-controlled LED bedside lamp capable of syncing with music and simulating natural sunrises.",
+        "image": "💡"
+    }
+]
 
-# Sidebar Filters
-st.sidebar.header("🔍 Filter Options")
-
-keyword_search = st.sidebar.text_input(
-    "Search Keywords", 
-    placeholder="e.g., AI, Stocks, Election..."
-)
-
-selected_country = st.sidebar.selectbox(
-    "Select Location/Country", 
-    options=["All"] + list(COUNTRIES.keys())
-)
-
-selected_category = st.sidebar.selectbox(
-    "Select Topic/Category", 
-    options=["All"] + [c.capitalize() for c in CATEGORIES]
-)
-
-num_articles = st.sidebar.slider(
-    "Number of Articles", 
-    min_value=5, 
-    max_value=50, 
-    value=15, 
-    step=5
-)
-
-# Process Filter Inputs
-country_param = COUNTRIES[selected_country] if selected_country != "All" else None
-category_param = selected_category.lower() if selected_category != "All" else None
-
-# Fetch Data Trigger
-if st.sidebar.button("Fetch Latest News", type="primary"):
-    with st.spinner("Fetching breaking news..."):
-        articles = fetch_news(
-            country_code=country_param, 
-            category=category_param, 
-            keyword=keyword_search, 
-            max_results=num_articles
-        )
-        
-    if articles:
-        st.success(f"Found {len(articles)} articles matching your criteria.")
-        
-        # Display articles in a clean grid/list layout
-        for idx, article in enumerate(articles):
-            title = article.get("title", "No Title Available")
-            description = article.get("description", "No description available for this article.")
-            url = article.get("url", "#")
-            image_url = article.get("urlToImage")
-            source = article.get("source", {}).get("name", "Unknown Source")
-            published_at = article.get("publishedAt", "")
-            
-            # Format Date
-            if published_at:
-                try:
-                    date_obj = datetime.strptime(published_at, "%Y-%m-%dT%H:%M:%SZ")
-                    formatted_date = date_obj.strftime("%b %d, %Y | %I:%M %p")
-                except ValueError:
-                    formatted_date = published_at
-            else:
-                formatted_date = "Unknown Date"
-
-            # Render Article Card
-            with st.container():
-                col1, col2 = st.columns([1, 3])
-                
-                with col1:
-                    if image_url:
-                        st.image(image_url, use_container_width=True)
-                    else:
-                        # Placeholder image if none exists
-                        st.image("https://placehold.co/600x400?text=No+Image", use_container_width=True)
-                        
-                with col2:
-                    st.markdown(f"### [{title}]({url})")
-                    st.markdown(f"**Source:** `{source}` | **Published:** *{formatted_date}*")
-                    st.write(description)
-                    st.markdown(f"[Read full article]({url})")
-                
-                st.markdown("---")
+# --- CART FUNCTIONS ---
+def add_to_cart(product_id):
+    if product_id in st.session_state.cart:
+        st.session_state.cart[product_id] += 1
     else:
-        st.info("No articles found. Try adjusting your filters or keywords.")
-else:
-    st.info("👈 Use the sidebar filters and click **'Fetch Latest News'** to populate the dashboard.")
+        st.session_state.cart[product_id] = 1
+    st.toast(f"Added item to cart! 🛒")
+
+def clear_cart():
+    st.session_state.cart = {}
+
+# --- SIDEBAR: FILTERS & CART SUMMARY ---
+with st.sidebar:
+    st.title("📌 Navigation")
+    
+    # Category Filter
+    categories = ["All Products"] + list(set(p["category"] for p in PRODUCTS))
+    selected_category = st.selectbox("Browse by Category", categories)
+    
+    st.write("---")
+    
+    # Shopping Cart Section
+    st.title("🛒 Your Cart")
+    if not st.session_state.cart:
+        st.info("Your shopping cart is empty.")
+    else:
+        total_cost = 0.0
+        # Iterate over item IDs in session state and render items
+        for prod_id, qty in list(st.session_state.cart.items()):
+            product = next((p for p in PRODUCTS if p["id"] == prod_id), None)
+            if product:
+                item_total = product["price"] * qty
+                total_cost += item_total
+                st.markdown(f"**{product['image']} {product['name']}**")
+                st.markdown(f"Qty: {qty} × ${product['price']:.2f} = **${item_total:.2f}**")
+                st.write("")
+        
+        st.write("---")
+        st.markdown(f"### Total: `${total_cost:.2f}`")
+        
+        # Checkout & Clear actions
+        if st.button("Proceed to Checkout", type="primary", use_container_width=True):
+            st.success("🎉 Order demo placed successfully!")
+            clear_cart()
+            
+        if st.button("Clear Cart", type="secondary", use_container_width=True):
+            clear_cart()
+            st.rerun()
+
+# --- MAIN CONTENT: HOMEPAGE ---
+
+# Hero Banner
+st.markdown("""
+    <div class="hero-container">
+        <h1>Welcome to MiniStore</h1>
+        <p>Discover handpicked premium essentials crafted for your modern lifestyle.</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# Filter products based on selected category from Sidebar
+filtered_products = PRODUCTS if selected_category == "All Products" else [p for p in PRODUCTS if p["category"] == selected_category]
+
+st.subheader(f"✨ Featured Products ({selected_category})")
+
+# Responsive Grid Layout Construction (3 items per row)
+# Chunking the list into groups of 3
+cols_per_row = 3
+for i in range(0, len(filtered_products), cols_per_row):
+    row_products = filtered_products[i:i + cols_per_row]
+    columns = st.columns(cols_per_row)
+    
+    for idx, product in enumerate(row_products):
+        with columns[idx]:
+            # Render custom HTML styles card component
+            st.markdown(f"""
+                <div class="product-card">
+                    <div>
+                        <div style='font-size: 3rem; margin-bottom: 0.5rem;'>{product['image']}</div>
+                        <div class="product-category">{product['category']}</div>
+                        <div class="product-title">{product['name']}</div>
+                        <div class="product-desc">{product['description']}</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Sub-price layout with Add-To-Cart actions
+            # Rendered using native Streamlit keys directly below the HTML block to preserve formatting and functionality
+            price_col, btn_col = st.columns([1, 1])
+            with price_col:
+                st.markdown(f"<div class='product-price'>${product['price']:.2f}</div>", unsafe_allow_html=True)
+            with btn_col:
+                # Unique button tracking utilizing product IDs
+                st.button("Add to Cart", key=f"btn_{product['id']}", on_click=add_to_cart, args=(product['id'],), use_container_width=True)
+            
+            st.write("#") # Visual spacer between row iterations
+
+# --- FOOTER ---
+st.markdown("---")
+st.markdown("<p style='text-align: center; color: #94A3B8; font-size: 0.85rem;'>© 2026 MiniStore Inc. Built entirely with Streamlit.</p>", unsafe_allow_html=True)
